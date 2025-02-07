@@ -4,75 +4,67 @@ function setup_redirects_table_and_migrate()
 {
 	global $wpdb;
 
-	// Log activation hook
-	error_log("setup_redirects_table_and_migrate: Activation hook triggered.");
-
 	// Step 1: Create the redirects table
 	if (!create_redirects_table()) {
-		error_log("setup_redirects_table_and_migrate: Table creation failed.");
 		return;
 	}
 
 	// Step 2: Migrate data from the old `redirected_links` option
 	migrate_redirected_links();
-
-	error_log("setup_redirects_table_and_migrate: Migration process completed.");
 }
 
-
-
-
-function p404_customizer_admin_inline_styles() {
-    // Check if we are in the Customizer page
-    if (is_customize_preview()) {
-        ?>
-        <style>
-            .accordion-section-title button.accordion-trigger {
-                /* Add your desired styles for Customizer accordion button here */
-               height:auto !important
+function p404_customizer_admin_inline_styles()
+{
+	// Check if we are in the Customizer page
+	if (is_customize_preview()) {
+?>
+		<style>
+			.accordion-section-title button.accordion-trigger {
+				/* Add your desired styles for Customizer accordion button here */
+				height: auto !important
 			}
-        </style>
-        <?php
-    }
+		</style>
+	<?php
+	}
 }
 add_action('customize_controls_print_styles', 'p404_customizer_admin_inline_styles');
-
-
-
 
 function create_redirects_table()
 {
 	global $wpdb;
-	$table_name = $wpdb->prefix . 'redirects_404';
+	$table_name = $wpdb->prefix . 'redirects_404'; // Replace 'your_table_name' with your actual table name
 
-	// Check if the table already exists
+	// Check if the table exists
 	if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
-		error_log("create_redirects_table: Table `$table_name` already exists.");
+		// Check if the unique key exists on the url column
+		$unique_key_exists = $wpdb->get_var("
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = SCHEMA()
+          AND TABLE_NAME = '$table_name'
+          AND INDEX_NAME = 'url'
+    ");
+
+		if ($unique_key_exists) {
+			// Drop the unique key on the url column
+			$wpdb->query("ALTER TABLE $table_name DROP INDEX url;");
+		}
 		return true;
 	}
 
-	// Create the table
+	// Create the table if it doesn't exist
 	$charset_collate = $wpdb->get_charset_collate();
 	$sql = "CREATE TABLE $table_name (
-        id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
-        url TEXT NOT NULL,
-        count INT(11) NOT NULL DEFAULT 1,
-        last_redirected DATETIME NOT NULL,
-        PRIMARY KEY (id),
-        UNIQUE KEY url (url(191))
-    ) $charset_collate;";
+    id BIGINT(20) UNSIGNED NOT NULL AUTO_INCREMENT,
+    url TEXT NOT NULL,
+    count INT(11) NOT NULL DEFAULT 1,
+    last_redirected DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY url (url(191)) -- Change UNIQUE KEY to a regular KEY
+) $charset_collate;";
 
 	require_once(ABSPATH . 'wp-admin/includes/upgrade.php');
 	dbDelta($sql);
-
-	// Verify table creation
-	if ($wpdb->get_var("SHOW TABLES LIKE '$table_name'") == $table_name) {
-		error_log("create_redirects_table: Table `$table_name` created successfully.");
-		return true;
-	} else {
-		error_log("create_redirects_table: Failed to create table `$table_name`.");
-		return false;
-	}
 }
 
 function migrate_redirected_links()
@@ -84,11 +76,16 @@ function migrate_redirected_links()
 
 	// Check if there are any links to migrate
 	if (empty($option_value['redirected_links'])) {
-		error_log("migrate_redirected_links: No `redirected_links` data found to migrate.");
 		return;
 	}
 
+	$counter = 0; // Initialize counter
 	foreach ($option_value['redirected_links'] as $redirect) {
+		// Break the loop if 3000 records have been processed
+		if ($counter >= 3000) {
+			break;
+		}
+
 		$url = $redirect['link'];
 		$date = date("Y-m-d H:i:s", strtotime($redirect['date']));
 
@@ -105,7 +102,6 @@ function migrate_redirected_links()
 				],
 				['id' => $existing->id]
 			);
-			error_log("migrate_redirected_links: Updated URL `$url` with count " . ($existing->count + 1) . ".");
 		} else {
 			// Insert new URL records
 			$wpdb->insert(
@@ -116,22 +112,25 @@ function migrate_redirected_links()
 					'last_redirected' => $date
 				]
 			);
-			error_log("migrate_redirected_links: Inserted new URL `$url`.");
 		}
+		$counter++; // Increment counter
 	}
 
-	// Remove `redirected_links` from the options
-	unset($option_value['redirected_links']);
-	update_option($option_name, $option_value);
-	error_log("migrate_redirected_links: `redirected_links` removed from `$option_name`.");
+	// Remove `redirected_links` from the options if all records were migrated
+	if ($counter < count($option_value['redirected_links'])) {
+	} else {
+		unset($option_value['redirected_links']);
+		update_option($option_name, $option_value);
+	}
 }
+
 
 function p404_migrate_options()
 {
 	// Check if migration is already completed
-	$migration_status = get_option('p404_migration_status', '0'); // Default: 0 (not migrated)
+	$migration_status = get_option('p404_migration_status2', '1'); // Default: 1 (not migrated)
 
-	if ($migration_status === '0') {
+	if ($migration_status === '1') {
 		// Perform migration
 		$options = get_option(OPTIONS404, array());
 
@@ -142,14 +141,8 @@ function p404_migrate_options()
 		// Save the updated options
 		update_option(OPTIONS404, $options);
 		setup_redirects_table_and_migrate();
-		// Update the migration status to `1` (migrated)
-		update_option('p404_migration_status', '1');
-
-		// Log migration
-		error_log("P404 Migration completed successfully.");
-	} else {
-		// Log that migration was skipped
-		error_log("P404 Migration skipped. Already completed.");
+		// Update the migration status to `2` (migrated)
+		update_option('p404_migration_status2', '2');
 	}
 }
 add_action('plugins_loaded', 'p404_migrate_options');
@@ -196,14 +189,14 @@ function sample_admin_notice__error()
 	$links_count = P404REDIRECT_read_option_value('links', 0);
 
 
-	if (get_option('P404_alert_msg') != 'hidemsg' && $links_count > 10) {
+	if (get_option('P404_alert_msg') != 'hidemsg' && $links_count > 500) {
 
 		$message = __('<h3>All 404 Redirect to Homepage</h3><b>Warning</b>, You have many broken links that hurt your site\'s rank in search engines, <a target="_blank" href="https://www.wp-buy.com/product/seo-redirection-premium-wordpress-plugin/#fix404links">UPGRADE</a> your plugin and empower your site\'s SEO.&nbsp; <span id="Hide404Alert" style="cursor:pointer" ><a href="javascript:void(0)"><strong> Dismiss</strong></a> this message</span> or check the plugin <a href="' . admin_url('admin.php?page=all-404-redirect-to-homepage.php') . '"><b>settings</b></a>.', 'sample-text-domain');
 
 		printf('<div id="all404upgradeMsg" class="%1$s"><p>%2$s</p></div>', esc_attr($class), $message);
 
 
-?>
+	?>
 		<script type="text/javascript">
 			jQuery(document).ready(function() {
 
