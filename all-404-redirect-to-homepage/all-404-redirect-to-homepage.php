@@ -4,7 +4,7 @@ Plugin Name: All 404 Redirect to Homepage
 Plugin URI: https://www.wp-buy.com
 Description: a plugin to redirect 404 pages to home page or any custom page
 Author: wp-buy
-Version: 5.4
+Version: 5.5
 Author URI: https://www.wp-buy.com
 */
 register_activation_hook(__FILE__, 'p404_modify_htaccess');
@@ -310,7 +310,8 @@ function p404_enqueue_canvasjs_safe()
 {
     // Only enqueue if not already loaded by another plugin
     if (!wp_script_is('canvasjs', 'enqueued') && !wp_script_is('canvasjs-loaded')) {
-        echo '<script src="https://canvasjs.com/assets/script/canvasjs.min.js" id="p404-canvasjs"></script>';
+       // echo '<script src="https://canvasjs.com/assets/script/canvasjs.min.js" id="p404-canvasjs"></script>';
+	     echo '<script src="'.plugin_dir_url(__FILE__) . 'js/canvasjs.min.js" id="p404-canvasjs"></script>';
     }
 }
 
